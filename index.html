@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>test</title>
+        <style>
+			* {box-sizing: border-box;}
+			body {
+				margin: 0px;
+				overflow: hidden;
+			}
+			.img-magnifier-container {
+			  position:relative;
+			}
+
+			.img-magnifier-glass {
+			  position: absolute;
+			  border: 3px solid #000;
+			  border-radius: 50%;
+			  cursor: none;
+			  /*Set the size of the magnifier glass:*/
+			  width: 100px;
+			  height: 100px;
+			}
+			.canvas-container {
+				position: absolute
+			}
+			.img {
+				position: absolute;
+				height:78vh;
+				width: auto;
+				margin: auto;
+				overflow: hidden;
+				margin-top: 0px;
+				clip-path: ellipse(48.54% 48.78% at 50.0% 49.82%); /*ellipse(49% 49% at 50.1% 50.2%);*/
+				margin: auto;
+				left: 0;
+				right: 0;
+				top: 0;
+				bottom: 0;
+			}
+			.starmap {
+				position: absolute;
+				display: block;
+				width: 100%;
+    			height: 100%;
+				margin: auto;
+				overflow: hidden;
+				z-index: -1;
+			}
+			.checkbox {
+				display: inline-flex;
+				cursor: pointer;
+				position: relative;
+			}
+			input[type=range] {
+				height: 38px;
+				width: 100%;
+				min-width: 300px;
+			}
+			@font-face {
+			  font-family: 'Supply';
+			  src: url('Supply-UltraLight.otf') format('truetype');
+			}
+		</style>
+		<link href="https://fonts.googleapis.com/css?family=Titillium+Web:200&display=swap" rel="stylesheet">
+		<!--<script type="module" src="https://unpkg.com/three@0.160.0/build/three.module.js"></script>-->
+		<script type="importmap">
+			{
+			  "imports": {
+				"three": "https://unpkg.com/three@^0/build/three.module.js",
+				"three/addons/": "https://unpkg.com/three@^0/examples/jsm/"
+			  }
+			}
+		  </script>
+    </head>
+    <body>
+		<canvas hidden id="cache_canvas"></canvas>
+		<canvas hidden id="canvas"></canvas>
+		<canvas id="starmap" class="starmap"></canvas>
+
+         <div id="time_container" style="color: white;position: absolute;left: 82.5%;top: 5%;font-family: 'Supply', sans-serif;font-weight: 1; font-style: normal;">
+        	<div id="time" style="font-size:4em">--:--:--</div>
+        	<table>
+				<tr>
+        			<td style="vertical-align: top;">T-</td>
+        			<td><div id="time_stamp" style="font-size:2em">--:--:--</div></td>
+					<td style="vertical-align: middle;"><div id="motion_mode" style="font-size:2em">⟳</div></td>
+        		</tr>
+        		<tr>
+        			<td style="vertical-align: top;">SR</td>
+        			<td><div id="sunrise" style="font-size:2em">--:--:--</div></td>
+        		</tr>
+        		<tr>
+        			<td style="vertical-align: top;">SS</td>
+        			<td><div id="sunset" style="font-size:2em">--:--:--</div></td>
+        		</tr>
+				<tr>
+        			<td style="vertical-align: top;">MP</td>
+        			<td><div id="moon_phase" style="font-size:2em;text-align: center;">-</div></td>
+        		</tr>
+				<tr style="display: none;">
+        			<td style="vertical-align: top;">DB</td>
+        			<td><div id="debug" style="font-size:2em;text-align: center;">-</div></td>
+        		</tr>
+				<!--<tr>
+        			<td style="vertical-align: top;">LA</td>
+        			<td><div id="lastattempt" style="font-size:2em">--:--:--</div></td>
+        		</tr>-->
+        	</table>
+        </div>
+		<script id="vertexShader" type="glsl">
+			varying vec2 vUv;
+		
+			void main() {
+				vUv = uv;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		</script>
+		<script id="lutFragmentShader" type="glsl">
+			uniform sampler2D tex;
+			
+			precision highp sampler3D;
+			uniform sampler3D lut;
+			uniform float lutWidth;
+
+			uniform float brightness;
+			uniform float exposure;
+			uniform float contrast;
+			uniform float saturation;
+			uniform float hue;
+
+			varying vec2 vUv;
+
+			vec3 adjustBrightness(vec3 color, float value) {
+				return color + value;
+			}
+
+			vec3 adjustContrast(vec3 color, float value) {
+				return 0.5 + value * (color - 0.5);
+			}
+
+			vec3 adjustExposure(vec3 color, float value) {
+				return (1.0 + value) * color;
+			}
+
+			vec3 hueShift(vec3 color, float hue) {
+				const vec3 k = vec3(0.57735, 0.57735, 0.57735);
+				float cosAngle = cos(hue);
+				return vec3(color * cosAngle + cross(k, color) * sin(hue) + k * dot(k, color) * (1.0 - cosAngle));
+			}
+
+			vec3 adjustSaturation(vec3 color, float value) {
+				// https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
+				const vec3 luminosityFactor = vec3(0.2126, 0.7152, 0.0722);
+				vec3 grayscale = vec3(dot(color, luminosityFactor));
+			  
+				return mix(grayscale, color, 1.0 + value);
+			}
+
+			void main() {
+				vec4 rgba = texture2D(tex, vUv);
+
+				#if ENABLED
+				float pixelWidth = 1.0 / lutWidth;
+				float halfPixelWidth = 0.5 / lutWidth;
+				vec3 uvw = vec3( halfPixelWidth ) + rgba.rgb * ( 1.0 - pixelWidth );
+				rgba = vec4( texture( lut, rgba.rgb ).rgb, rgba.a );
+				#endif
+
+				rgba.rgb = adjustBrightness(rgba.rgb, brightness);
+				rgba.rgb = adjustExposure(rgba.rgb, exposure);
+				rgba.rgb = adjustContrast(rgba.rgb, contrast);
+				rgba.rgb = adjustSaturation(rgba.rgb, saturation);
+				rgba.rgb = hueShift(rgba.rgb, hue);
+
+				gl_FragColor = rgba;
+			}
+		</script>
+		<script id="colorCorrectionFragmentShader" type="glsl">
+			uniform sampler2D tex;
+
+			uniform float brightness;
+			uniform float exposure;
+			uniform float contrast;
+			uniform float saturation;
+			uniform float hue;
+
+			varying vec2 vUv;
+
+			vec3 adjustBrightness(vec3 color, float value) {
+				return color + value;
+			}
+
+			vec3 adjustContrast(vec3 color, float value) {
+				return 0.5 + value * (color - 0.5);
+			}
+
+			vec3 adjustExposure(vec3 color, float value) {
+				return (1.0 + value) * color;
+			}
+
+			vec3 hueShift(vec3 color, float hue) {
+				const vec3 k = vec3(0.57735, 0.57735, 0.57735);
+				float cosAngle = cos(hue);
+				return vec3(color * cosAngle + cross(k, color) * sin(hue) + k * dot(k, color) * (1.0 - cosAngle));
+			}
+
+			vec3 adjustReds(vec3 color, float redValue) {
+				return color * vec3(redValue, 1.f, 1.f);
+			}
+
+			vec3 adjustGreens(vec3 color, float greenValue) {
+				return color * vec3(1.f, greenValue, 1.f);
+			}
+
+			vec3 adjustBlues(vec3 color, float blueValue) {
+				return color * vec3(1.f, 1.f, blueValue);
+			}
+
+			vec3 adjustSaturation(vec3 color, float value) {
+				// https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
+				const vec3 luminosityFactor = vec3(0.2126, 0.7152, 0.0722);
+				vec3 grayscale = vec3(dot(color, luminosityFactor));
+			  
+				return mix(grayscale, color, 1.0 + value);
+			}
+
+			void main(void) {
+				vec2 texCoord = vUv;
+				vec4 rgba = texture2D(tex, texCoord);
+
+				rgba.rgb = adjustBrightness(rgba.rgb, brightness);
+				rgba.rgb = adjustExposure(rgba.rgb, exposure);
+				rgba.rgb = adjustContrast(rgba.rgb, contrast);
+				rgba.rgb = adjustSaturation(rgba.rgb, saturation);
+				rgba.rgb = hueShift(rgba.rgb, hue);
+
+				gl_FragColor = rgba;
+			}
+		</script>
+		<script id="additiveBlenderFragmentShader" type="glsl">
+			uniform sampler2D tDiffuse;
+			uniform sampler2D tAdd;
+			uniform float amount;
+
+			varying vec2 vUv;
+
+			void main() {
+				vec4 texelBase = texture2D( tDiffuse, vUv );
+				vec4 texelAdd = texture2D( tAdd, vUv );
+
+				if (texelBase.a == 1.0f) {
+					gl_FragColor = texelBase;
+				} else if (texelBase.a != 0.0f) {
+					gl_FragColor = texelBase + texelAdd;
+				} else {
+					gl_FragColor = texelAdd;
+				}
+
+				//gl_FragColor =  (texelAdd * amount) + texelBase;
+			}
+		</script>
+        <script type = "module">
+			Date.fromJulian = function (j) {
+				j = (+j) + (30.0 / (24 * 60 * 60));
+				var A = Date.julianArray(j, true);
+				return new Date(Date.UTC.apply(Date, A));
+			};
+			Date.julianArray = function (j, n) {
+				var F = Math.floor;
+				var j2, JA, a, b, c, d, e, f, g, h, z;
+				j += 0.5;
+				j2 = (j - F(j)) * 86400.0;
+				z = F(j);
+				f = j - z;
+				if (z < 2299161) a = z;
+				else {
+					g = F((z - 1867216.25) / 36524.25);
+					a = z + 1 + g - F(g / 4);
+				}
+				b = a + 1524;
+				c = F((b - 122.1) / 365.25);
+				d = F(365.25 * c);
+				e = F((b - d) / 30.6001);
+				h = F((e < 14) ? (e - 1) : (e - 13));
+				JA = [F((h > 2) ? (c - 4716) : (c - 4715)),
+				h - 1, F(b - d - F(30.6001 * e) + f)];
+				var JB = [F(j2 / 3600), F((j2 / 60) % 60), Math.round(j2 % 60)];
+				JA = JA.concat(JB);
+				if (typeof n == 'number') return JA.slice(0, n);
+				return JA;
+			};
+			Date.getSeasons = function (y, wch) {
+				y = y || new Date().getFullYear();
+				if (y < 1000 || y > 3000) throw y + ' is out of range';
+				var Y1 = (y - 2000) / 1000,
+					Y2 = Y1 * Y1,
+					Y3 = Y2 * Y1,
+					Y4 = Y3 * Y1;
+				var jd, t, w, d, est = 0,
+					i = 0,
+					Cos = Math.degCos,
+					A = [y],
+					e1 = [485, 203, 199, 182, 156, 136, 77, 74, 70, 58, 52, 50, 45, 44, 29, 18, 17, 16, 14, 12, 12, 12, 9, 8],
+					e2 = [324.96, 337.23, 342.08, 27.85, 73.14, 171.52, 222.54, 296.72, 243.58, 119.81, 297.17, 21.02,
+					247.54, 325.15, 60.93, 155.12, 288.79, 198.04, 199.76, 95.39, 287.11, 320.81, 227.73, 15.45],
+					e3 = [1934.136, 32964.467, 20.186, 445267.112, 45036.886, 22518.443,
+					65928.934, 3034.906, 9037.513, 33718.147, 150.678, 2281.226,
+					29929.562, 31555.956, 4443.417, 67555.328, 4562.452, 62894.029,
+					31436.921, 14577.848, 31931.756, 34777.259, 1222.114, 16859.074];
+				while (i < 4) {
+					switch (i) {
+						case 0:
+							jd = 2451623.80984 + 365242.37404 * Y1 + 0.05169 * Y2 - 0.00411 * Y3 - 0.00057 * Y4;
+							break;
+						case 1:
+							jd = 2451716.56767 + 365241.62603 * Y1 + 0.00325 * Y2 + 0.00888 * Y3 - 0.00030 * Y4;
+							break;
+						case 2:
+							jd = 2451810.21715 + 365242.01767 * Y1 - 0.11575 * Y2 + 0.00337 * Y3 + 0.00078 * Y4;
+							break;
+						case 3:
+							jd = 2451900.05952 + 365242.74049 * Y1 - 0.06223 * Y2 - 0.00823 * Y3 + 0.00032 * Y4;
+							break;
+					}
+					t = (jd - 2451545.0) / 36525;
+					w = 35999.373 * t - 2.47;
+					d = 1 + 0.0334 * Cos(w) + 0.0007 * Cos(2 * w);
+					est = 0;
+					for (var n = 0; n < 24; n++) {
+						est += e1[n] * Cos(e2[n] + (e3[n] * t));
+					}
+					jd += (0.00001 * est) / d;
+					A[++i] = Date.fromJulian(jd);
+				}
+				return wch && A[wch] ? A[wch] : A;
+			};
+			Math.degRad = function (d) {
+				return (d * Math.PI) / 180.0;
+			};
+			Math.degSin = function (d) {
+				return Math.sin(Math.degRad(d));
+			};
+			Math.degCos = function (d) {
+				return Math.cos(Math.degRad(d));
+			};
+
+			import * as THREE from 'three';
+			//import { OrbitControls } from 'three/addons/controls/OrbitControls.js'; 
+			import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+			import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+			import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+			import { SavePass } from 'three/addons/postprocessing/SavePass.js'
+			//import { HorizontalBlurShader } from 'three/addons/shaders/HorizontalBlurShader.js'
+			//import { VerticalBlurShader } from 'three/addons/shaders/VerticalBlurShader.js'
+			//import { VelocityShader } from 'three/addons/shaders/VelocityShader.js'
+			import { BlendShader } from 'three/addons/shaders/BlendShader.js'
+			//import { CopyShader } from 'three/addons/shaders/CopyShader.js'
+			//import { LUTImageLoader } from 'three/addons/loaders/LUTImageLoader.js'
+			import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
+			
+			const canvas = document.getElementById("canvas");
+			const cacheCanvas = document.getElementById("cache_canvas");
+			const starmap = document.getElementById("starmap");
+			const infoPanel = document.getElementById("time_container");
+
+			var lastUpdateEarthAttemptTime = null;
+			var earthMap = new Map()
+			var timeBetweenEarths = 90000
+			const timeToRefreshEarths = 2.5 * 60 * 1000
+			const dayTS = 24 * 60 * 60 * 1000
+			var bounceEarths = true
+			var showInfo = false
+			
+			const weatherApiKey = "d04397b1a9b24de3a5a235126232812"
+			var currentIp = null
+			var currentGeoInfo = null
+			var currentWeatherInfo = null
+			var lastWeatherApiCallDate = null
+
+			const starmapBaseUrl = "https://raw.githubusercontent.com/filipeuva/filipeuva.blog/gh-pages/images/"
+			const starmapUrls = new Map(Object.entries({
+				naked: starmapBaseUrl + "starmap_2020_8k.jpg",
+				constellations: starmapBaseUrl + "starmap_constelations_2020_8k.jpg",
+				boundaries: starmapBaseUrl + "starmap_boundaries_2020_8k.jpg",
+				boundariesplusconstellations: starmapBaseUrl + "starmap_boundaries_constellations_2020_8k.jpg"
+			}));
+			
+			var bordersImgs = []
+			var nightLightImgs = []
+
+			const moonPhasesMap = new Map(Object.entries({
+				"New Moon": "🌑︎",
+				"Waxing Crescent": "🌘︎",
+				"First Quarter": "🌓︎",
+				"Waxing Gibbous": "🌖︎",
+				"Full Moon": "🌕︎",
+				"Waning Gibbous": "🌔︎",
+				"Last Quarter": "🌗︎",
+				"Waning Crescent": "🌒︎"
+			}));
+
+			const longitudeSatellitesMap = new Map(Object.entries({
+				"-137": "goes-18",
+				"-75.2": "goes-16",
+				"0.0": "meteosat-0deg",
+				"45.5": "meteosat-9",
+				"128.0": "gk2a",
+				"140.7": "himawari"
+			}));
+
+			const earthQualityArray = [1, 4, 16, 64];
+			const earthFrequencyArray = [1, 2, 4]
+
+			var currentLongitudePreference = "follow-sun"//"auto"
+			var starsDuringDay = false
+			var currentStarmap = "naked"
+			var currentEarthView = "natural_color"
+			var currentTimeStampContext = 0
+			var closestSatteliteDegrees = 0.0
+			var currentEarthQualityIndex = 0
+			var maxEarthState = 1//24
+			var currentEarthFrequencyIndex = 0//2
+			var showBorders = true
+			var showNightLight = true
+			var rotateEarthTilt = false
+
+			const defaultEarthColorFilterBrightness = 0
+			const defaultEarthColorFilterContrast = 1.26355
+			const defaultEarthColorFilterExposure = 0.12377
+			const defaultEarthColorFilterSaturation = 0.29055 // 0.3886
+			const defaultEarthColorFilterHueShift = 0
+
+			var earthColorFilterBrightness = defaultEarthColorFilterBrightness
+			var earthColorFilterContrast = defaultEarthColorFilterContrast
+			var earthColorFilterExposure = defaultEarthColorFilterExposure
+			var earthColorFilterSaturation = defaultEarthColorFilterSaturation
+			var earthColorFilterHueShift = defaultEarthColorFilterHueShift
+
+			var earthManualModeOrigin = null
+
+			var earthColorFilterOverride = false
+			var earthColorFilterDisable = false
+			var debugStarmap = false
+			var useProxy = true
+
+			function deleteLastImage() {
+				var dateToDelete = Array.from(earthMap.keys())[earthMap.size - 1]
+				//URL.revokeObjectURL(dateToDelete.src)	
+				earthMap.delete(dateToDelete);
+			}
+
+			function clearCache() {
+				earthMap.clear();
+			} 
+
+			function invalidateCache() {
+				while (earthMap.size > maxEarthState * earthFrequencyArray[currentEarthFrequencyIndex]) {
+					deleteLastImage()
+				}
+			} 
+
+			function insertEarth(timeStamp, img) {
+				if (!cancelEarthUpdate) {
+					const now = Date.now()
+					
+
+					const sizeSquared = img.length
+					const side = Math.sqrt(sizeSquared)
+
+					const ctx = cacheCanvas.getContext("2d")
+					ctx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height)
+
+					const imageMaxDimension = (window.screen.height < window.screen.width ? window.screen.height : window.screen.width) * 0.8
+					const fullHeight = img[0].image.height * side
+
+					cacheCanvas.width = Math.floor(fullHeight < imageMaxDimension ? fullHeight : imageMaxDimension)
+					cacheCanvas.height = cacheCanvas.width
+
+					var ratio = cacheCanvas.width / fullHeight
+
+					for (let i = 0; i < sizeSquared; i++) {
+						const column = Math.floor(i / side)
+						const row = i % side
+
+						ctx.drawImage(img[i].image, Math.floor(img[0].image.width * row * ratio), Math.floor(img[0].image.height * column * ratio), Math.ceil(img[0].image.width * ratio), Math.ceil(img[0].image.height * ratio));
+						//context.drawImage(nightLightImgs[i], leftImageArray[0].width * row * ratio, leftImageArray[0].height * column * ratio, leftImageArray[0].width * ratio, leftImageArray[0].height * ratio);
+					}
+
+					var finalImg = new Image();
+					finalImg.src = cacheCanvas.toDataURL("image/jpeg", 0.99)
+					var head = 'data:image/jpeg;base64,';
+					var imgFileSize = Math.round((finalImg.src.length - head.length)*3/4);
+					//console.log(new Date(timeStamp) + " - size : " + imgFileSize)
+					ctx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height)
+
+					//console.log("Inserted " + new Date(timeStamp))
+					const shouldAdjustAlpha = earthMap.size > 1 && globalAlpha == null
+					var currentDate = null
+					var dateList = null
+					if (shouldAdjustAlpha) {
+						dateList = Array.from(earthMap.keys())
+						const total = dateList.length - 1
+						
+						const edgeDatesDelta = dateList[0] - dateList[total]
+						const totalRange = Math.min(1, edgeDatesDelta / dayTS)
+						var oldAlpha = Math.min(1.0, ((now - alphaBetweenEarthsStarted) / (timeBetweenEarths * totalRange)));
+						if (!imageBlendDirectionBackward) oldAlpha = 1.0 - oldAlpha
+						console.log("Old Alpha : " + oldAlpha)
+						currentDate = dateList[0] - (edgeDatesDelta * oldAlpha)
+					}
+
+					earthMap.set(new Date(timeStamp).getTime(), finalImg)
+					earthMap = new Map([...earthMap.entries()].sort((left, right) => right[0] - left[0]))
+					invalidateCache()
+
+					if (currentDate) {
+						const newTotal = dateList.length - 1
+						const newEdgeDatesDelta = dateList[0] - dateList[newTotal]
+						const newTotalRange = Math.min(1, newEdgeDatesDelta / dayTS)
+						
+						var newAlpha = ((dateList[0] - currentDate) / newEdgeDatesDelta) 
+						if (!imageBlendDirectionBackward) newAlpha = 1.0 - newAlpha
+
+						console.log("New Alpha : " + newAlpha)
+						alphaBetweenEarthsStarted = Date.now() - (newAlpha * (timeBetweenEarths * newTotalRange))
+					}
+				}
+			}
+
+			function resetGlobalAlpha() {
+				console.log("Reset global alpha !")
+				const dateList = Array.from(earthMap.keys())
+				const total = dateList.length - 1
+				const totalRange = Math.min(1, (dateList[0] - dateList[total]) / dayTS)
+
+				//imageBlendDirectionBackward = false
+				const alpha = imageBlendDirectionBackward ? globalAlpha : 1 - globalAlpha
+				alphaBetweenEarthsStarted = Date.now() - (alpha * (timeBetweenEarths * totalRange))
+
+				globalAlpha = null
+			}
+
+			var cancelEarthUpdate = false
+			var cancelShouldClear = false
+
+			var isWallpaperEngine = false
+			var isWallpaperEngineInitialized = false
+
+			try {
+				function applyExtraProperties(properties) {
+					
+				}
+
+				window.wallpaperPropertyListener = {
+					applyUserProperties: function(properties) {
+						try {
+							var signalCancelation = false
+							var shouldRefresh = false
+
+							if (properties.timewindow) {
+								if (maxEarthState != properties.timewindow.value) {
+									console.log("Setting max to " + properties.timewindow.value)
+									maxEarthState = properties.timewindow.value;
+									invalidateCache()
+									shouldRefresh = true
+								}
+							}
+
+							if (properties.audioprocessing) {
+								listenToAudio = properties.audioprocessing.value
+								if (isPlayingAudio && !listenToAudio) {
+									resetGlobalAlpha()
+								}
+							}
+
+							if (properties.bounceearth) {
+								bounceEarths = properties.bounceearth.value
+							}
+
+							if (properties.daystar) {
+								starsDuringDay = properties.daystar.value
+							}
+
+							if (properties.showinfo) {
+								showInfo = properties.showinfo.value
+								infoPanel.style.display = showInfo ? "block" : "none"
+							}
+
+							if (properties.starmapfov) {
+								camera.fov = properties.starmapfov.value;
+								camera.updateProjectionMatrix();
+								console.log("Set camera fov to " + camera.fov);
+							}
+
+							if (properties.earthspeed) {
+								timeBetweenEarths = properties.earthspeed.value;
+							}
+
+							if (properties.filteroverride) {
+								earthColorFilterOverride = properties.filteroverride.value;
+							}
+
+							if (properties.filterdisable) {
+								earthColorFilterDisable = properties.filterdisable.value;
+							}
+
+							if (properties.starmapoverlay) {
+								currentStarmap = properties.starmapoverlay.value
+
+								texture = new THREE.TextureLoader().load(starmapUrls.get(currentStarmap))
+								texture.wrapS = THREE.RepeatWrapping
+								texture.repeat.x = -1
+							}
+
+							if (properties.earthview) {
+								currentEarthView = properties.earthview.value 
+
+								signalCancelation = true
+							}
+
+							if (properties.timestampcontext) {
+								currentTimeStampContext = properties.timestampcontext.value 
+							}
+
+							if (properties.earthquality) {
+								currentEarthQualityIndex = properties.earthquality.value
+
+								signalCancelation = true
+								earthSpriteMaterial = null
+								earthSpriteTexture = new THREE.CanvasTexture(canvas)
+								earthSpriteTexture.magFilter = THREE.NearestFilter
+								earthSpriteTexture.minFilter = THREE.NearestMipmapNearestFilter
+								bordersImgs = []
+								nightLightImgs = []
+							}
+
+							if (properties.earthfrequency) {
+								currentEarthFrequencyIndex = properties.earthfrequency.value
+
+								shouldRefresh = true
+							}
+
+							if (properties.showborders) {
+								showBorders = properties.showborders.value
+								shouldRefresh = true
+							}
+
+							if (properties.shownightlight) {
+								showNightLight = properties.shownightlight.value
+								shouldRefresh = true
+							}
+
+							if (properties.satellite) {
+								console.log("Hit")
+								currentLongitudePreference = properties.satellite.value
+
+								shouldRefresh = true // updateEarth will invalidate cache if satellite is indeed different
+							}
+
+							if (properties.realistictilt) {
+								rotateEarthTilt = properties.realistictilt.value
+							}
+
+							if (properties.filterbrightness) {
+								earthColorFilterBrightness = properties.filterbrightness.value
+							}
+
+							if (properties.filtercontrast) {
+								earthColorFilterContrast = properties.filtercontrast.value
+							}
+
+							if (properties.filterexposure) {
+								earthColorFilterExposure = properties.filterexposure.value
+							}
+
+							if (properties.filtersaturation) {
+								earthColorFilterSaturation = properties.filtersaturation.value
+							}
+
+							if (properties.filterhueshift) {
+								earthColorFilterHueShift = properties.filterhueshift.value
+							}
+
+							console.log("Configured !")
+						} catch(e) {
+							console.error(e)
+						} finally {
+							if (!isWallpaperEngineInitialized) {
+								tick()
+								console.log("Started")
+							} else {
+								if (signalCancelation) {
+									clearCache()
+
+									console.log("Cleared cache and refreshed")
+									updateEarth()
+								} else if (shouldRefresh) {
+									cancelEarthUpdate = true
+
+									console.log("Refreshed")
+									
+									updateEarth()
+								}
+							}
+							isWallpaperEngineInitialized = true
+							console.log("called " + JSON.stringify(properties, null, 4))
+						}
+					}
+				};
+
+				function wallpaperMediaPlaybackListener(event) {
+					isPlayingAudio = event.state == window.wallpaperMediaIntegration.PLAYBACK_PLAYING
+
+					blendPass.uniforms["mixRatio"].value = isPlayingAudio ? 0.78 : 0.26 /*0.90 : 0.0*/;
+
+					console.log("Media Playback " + (isPlayingAudio ? "Playing" : "Muted"))
+					
+					if (listenToAudio && !isPlayingAudio) {
+						resetGlobalAlpha()
+					}
+				}
+				window.wallpaperRegisterMediaPlaybackListener(wallpaperMediaPlaybackListener);
+
+				function wallpaperAudioListener(audioArray) {
+					if (listenToAudio && isPlayingAudio && !earthManualModeOrigin) {
+						//console.log("Media Audio Received " + (audioArray.reduce((accumulator, currentValue) => { return (accumulator + currentValue) },0)))
+
+						if (!previousAudioArray) previousAudioArray = new Array(128).fill(0)
+						const audioBias = 0.21
+						
+						for (let i = 0; i < previousAudioArray.length; i++) {
+							previousAudioArray[i] = (previousAudioArray[i] * (1 - audioBias)) + (audioArray[i] * audioBias)
+						}
+						
+						const channelCount = 8
+						const leftBass = previousAudioArray.slice(0, channelCount).reduce((accumulator, currentValue) => { return (accumulator + currentValue) },0)
+						const rightBass = previousAudioArray.slice(64, 64 + channelCount).reduce((accumulator, currentValue) => { return (accumulator + currentValue) },0)
+
+						const bass = (leftBass + rightBass) / channelCount
+						console.log(bass)
+						globalAlpha = Math.pow(Math.min(1.0, bass), 1.6)
+					} else previousAudioArray = null
+					//console.log("Set bass to " + globalAlpha)
+				}
+				window.wallpaperRegisterAudioListener(wallpaperAudioListener);
+				console.log("On wallpaper sim")
+				isWallpaperEngine = true
+				useProxy = false
+		    } catch (e) {
+				console.log("Not on wallpaper sim")
+			}
+
+			var alphaBetweenEarthsStarted = null;
+			var imageBlendDirectionBackward = true
+			var starmapPausedDeltaTs = 0
+
+			var globalAlpha = null
+			var listenToAudio = true
+			var isPlayingAudio = false
+			var previousAudioArray = null
+
+			var earthSpriteMinDistance = 4.7//2.2//4.7
+			var earthSpriteMaxDistance = 12.4
+			var earthSpriteOffset = 0//1.99
+
+			const backgroundScene = new THREE.Scene()
+			const finalScene = new THREE.Scene()
+			const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000)
+			const renderer = new THREE.WebGLRenderer({canvas: starmap, alpha: true})
+			renderer.setSize(window.innerWidth, window.innerHeight)
+			renderer.setClearColor( 0x000000, 0 );
+			renderer.setPixelRatio( window.devicePixelRatio );
+			renderer.debug.checkShaderErrors = debugStarmap || true
+
+			THREE.ColorManagement.legacyMode = false
+
+			renderer.outputEncoding = THREE.sRGBEncoding
+			renderer.toneMapping = THREE.ACESFilmicToneMapping
+			
+			// Sphere
+			const geometry = new THREE.SphereGeometry(20, 64, 64)
+			
+			var texture = new THREE.TextureLoader().load(starmapUrls.get(currentStarmap))
+			texture.wrapS = THREE.RepeatWrapping
+			texture.repeat.x = -1
+			const sphereShaderMaterial = new THREE.ShaderMaterial({
+				uniforms: {
+					tex: { value : texture},
+					brightness: { value: -1 },
+					exposure: { value: 0 },
+					contrast: { value: 1 },
+					saturation: { value: 0 }
+				},
+				vertexShader: document.getElementById('vertexShader').textContent,
+				fragmentShader: document.getElementById('colorCorrectionFragmentShader').textContent,
+				side: THREE.BackSide,
+			});
+
+			const sphere = new THREE.Mesh(geometry, sphereShaderMaterial)
+			backgroundScene.add(sphere)
+
+			//Earth Sprite
+			const shaderMaterial = new THREE.ShaderMaterial();
+			var earthSpriteTexture = new THREE.CanvasTexture(canvas)
+			earthSpriteTexture.magFilter = THREE.NearestFilter
+			earthSpriteTexture.minFilter = THREE.NearestMipmapNearestFilter
+			var earthSpriteMaterial = null;
+			//const earthSprite = new THREE.Sprite( shaderMaterial );
+			//earthSprite.scale.set(4, 4, 1)
+
+			const earthSphere = new THREE.CircleGeometry(2, 128)
+			earthSphere.scale(1, 0.9967, 1);
+			//*/const earthSphere = new THREE.SphereGeometry(2, 128, 128, 0, Math.PI )
+			//earthSprite.scale.set(4, 4, 1)
+			const earthSprite = new THREE.Mesh(earthSphere, shaderMaterial)
+
+			finalScene.add(earthSprite)
+			backgroundScene.add( new THREE.GridHelper(1, 1) );
+
+			//Motion Blur
+			const backgroundComposer = new EffectComposer( renderer );
+			const renderPass = new RenderPass( backgroundScene, camera );
+
+			//lut
+			var clutTexture = null;
+			clutTexture = new LUTCubeLoader().load("https://raw.githubusercontent.com/filipeuva/filipeuva.blog/gh-pages/2015/02/09/test3.CUBE", function ( result ) {
+				console.log("Loaded LUT")
+				clutTexture = result.texture3D
+			})
+
+			/*clutTexture = new LUTImageLoader().load("https://threejs.org/examples/luts/NeutralLUT.png", function ( result ) {
+				console.log("Loaded LUT")
+				clutTexture = result.texture3D
+			})//starmapBaseUrl + "clut.png")*/
+
+			const renderTargetParameters = {
+				minFilter: THREE.NearestFilter,
+				magFilter: THREE.NearestFilter,
+				stencilBuffer: false
+			};
+			
+			addEventListener("resize", (event) => { 
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				composer.setSize( window.innerWidth, window.innerHeight );
+				console.log("Resized")
+			 });
+
+			// save pass
+			const savePass = new SavePass(
+				new THREE.WebGLRenderTarget(
+					window.innerWidth,
+					window.innerHeight,
+					renderTargetParameters
+				)
+			);
+
+			// blend pass
+			const blendPass = new ShaderPass(BlendShader, "tDiffuse1");
+			blendPass.uniforms["tDiffuse2"].value = savePass.renderTarget.texture;
+			blendPass.uniforms["mixRatio"].value = 0.26;
+			blendPass.renderToScreen = false
+
+			// output pass
+			/*const outputPass = new ShaderPass(CopyShader);
+			outputPass.renderToScreen = false;*/
+
+			// adding passes to composer
+			backgroundComposer.addPass(renderPass);
+			backgroundComposer.addPass(blendPass);
+			backgroundComposer.addPass(savePass);
+			//backgroundComposer.addPass(outputPass);
+
+			const finalComposer = new EffectComposer( renderer );
+			finalComposer.addPass(new RenderPass(finalScene , camera))
+
+			const additivePass = new ShaderPass( {
+				uniforms: {
+					tDiffuse: { value: null },
+					tAdd: { value: null },
+					amount: { value: 1 }
+				},
+				vertexShader: document.getElementById('vertexShader').textContent,
+				fragmentShader: document.getElementById('additiveBlenderFragmentShader').textContent,
+
+			} )
+			//additivePass.uniforms.tAdd.value = backgroundComposer.renderTarget2.texture
+			additivePass.uniforms.tAdd.value = savePass.renderTarget.texture
+			additivePass.renderToScreen = true
+			
+			finalComposer.addPass(additivePass)
+
+			const loadImage = (url) => new Promise((resolve, reject) => {
+				const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
+				
+				fetch(useProxy ? proxyUrl : url).then(function(response) {
+					return response.blob();
+				}).then(function(myBlob) {
+					const size = myBlob.size
+					const objectURL = URL.createObjectURL(myBlob);
+					var myImage = new Image()
+					myImage.addEventListener('load', () => {
+						resolve({image: myImage, size: size})
+					});
+					myImage.src = objectURL;
+					return myImage;
+				});
+
+				/*const img = new Image();
+				img.addEventListener('load', () => {
+					resolve(img)
+				});
+				img.addEventListener('error', (err) => reject(err));
+				const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
+				if (useProxy) {
+					img.setAttribute('anonymous', true);img.setAttribute('crossorigin', true);
+					img.src = proxyUrl;
+				} else img.src = url*/
+			});
+
+			function checkCancelation () {
+				if (cancelEarthUpdate) {
+					if (cancelShouldClear) {
+						clearCache()
+						cancelShouldClear = false
+					}
+					console.log("Will cancel Earth update")
+					cancelEarthUpdate = false
+					
+					updateEarth()
+					return true
+				} 
+
+				return false
+			}
+
+            function updateEarth() {
+				checkCancelation()
+				console.log("called")
+				const prevLastUpdateEarthAttemptTime = lastUpdateEarthAttemptTime
+				lastUpdateEarthAttemptTime = new Date()
+				const currentDate = lastUpdateEarthAttemptTime.getFullYear()+"-"+(lastUpdateEarthAttemptTime.getMonth()+1)+"-"+ lastUpdateEarthAttemptTime.getDate()
+				localStorage["lastUpdateEarthAttemptTime"] = lastUpdateEarthAttemptTime
+				//document.getElementById("lastattempt").textContent = timeFormat(lastUpdateEarthAttemptTime);
+
+				function refreshEarthForGeo(geoInfo) {
+					const satteliteDegrees = Array.from(new Map(longitudeSatellitesMap).keys())
+					const prevSatteliteDegrees = closestSatteliteDegrees
+
+					if (currentLongitudePreference == "auto") {
+						closestSatteliteDegrees = satteliteDegrees.reduce(function(prev, curr) {
+							return (Math.abs(curr - geoInfo.location.lon) < Math.abs(prev - geoInfo.location.lon) ? curr : prev);
+						})
+					} else if (currentLongitudePreference == "follow-sun") {
+						const utcDate = Date.parse(lastUpdateEarthAttemptTime.toUTCString()) // +-180 for full sun
+						const utcZeroDate = Date.parse(currentDate +" 13:30:00.000UTC+00:00")
+
+						const fullSunLong =  (((utcZeroDate - utcDate) / dayTS) * Math.PI * 2)/* + (Math.PI * 2 / 24)*/ // Adjusted for satellite lag
+						
+						console.log("Degrees : " + (fullSunLong * (180 / Math.PI)))
+
+						closestSatteliteDegrees = satteliteDegrees.reduce(function(prev, curr) {
+							const prevRad = prev * (Math.PI / 180)
+							const currRad = curr * (Math.PI / 180)
+							console.log(Math.atan2(Math.sin(currRad-fullSunLong), Math.cos(currRad-fullSunLong)) * (180 / Math.PI) )
+
+							return /*(Math.abs(curr - fullSunLong) < Math.abs(prev - fullSunLong)*/Math.abs(Math.atan2(Math.sin(currRad-fullSunLong), Math.cos(currRad-fullSunLong))) < Math.abs(Math.atan2(Math.sin(prevRad-fullSunLong), Math.cos(prevRad-fullSunLong))) ? curr : prev;
+						})
+					} else closestSatteliteDegrees = currentLongitudePreference
+
+					if (closestSatteliteDegrees != prevSatteliteDegrees) {
+						earthSpriteMaterial = null
+						earthSpriteTexture = new THREE.CanvasTexture(canvas)
+						earthSpriteTexture.magFilter = THREE.NearestFilter
+						earthSpriteTexture.minFilter = THREE.NearestMipmapNearestFilter
+						bordersImgs = []
+						nightLightImgs = []
+						clearCache()
+					}
+
+					console.log(currentLongitudePreference)
+
+					const currentSatellite = longitudeSatellitesMap.get(closestSatteliteDegrees)
+					const qualityModifier = !useProxy && (closestSatteliteDegrees == 0.0 || closestSatteliteDegrees == 45.5) ? 1 : 0
+
+					const currentQualifiedEarthQualityIndex = Math.min(earthQualityArray.length - 1, currentEarthQualityIndex + qualityModifier) 
+
+					const targetUrl = "https://rammb-slider.cira.colostate.edu/data/json/"+currentSatellite+"/full_disk/"+currentEarthView+"/latest_times.json"
+					const url = useProxy ? 'https://corsproxy.io/?' + encodeURIComponent(targetUrl + "?" + Date.now()) : targetUrl;
+					fetch(url)
+					.then(resp => resp.json())
+					.then(json => {
+						
+						var timestamps = json.timestamps_int
+
+						if (showBorders && bordersImgs.length == 0) {
+							console.log("Fetching borders")
+							const bordersTargetUrl = "https://rammb-slider.cira.colostate.edu/data/json/"+currentSatellite+"/full_disk/maps/borders/silver/latest_times_all.json"
+							const bordersUrl = useProxy ? 'https://corsproxy.io/?' + encodeURIComponent(bordersTargetUrl + "?" + Date.now()) : bordersTargetUrl;
+							fetch(bordersUrl)
+							.then(resp => resp.json())
+							.then(bordersJson => {
+								const spriteSheetPromises = []
+
+								var bordersTimestamp = ""+bordersJson.timestamps_int[0]
+
+								const year = bordersTimestamp.substring(0,4)
+								const month = ("0" + bordersTimestamp.substring(4,6)).slice(-2)
+								const day = ("0" + bordersTimestamp.substring(6,8)).slice(-2)
+								const hour = ("0" + bordersTimestamp.substring(8,10)).slice(-2)
+								const minute = ("0" + bordersTimestamp.substring(10,12)).slice(-2)
+								const second = ("0" + bordersTimestamp.substring(12,14)).slice(-2)
+
+								const sizeSquared = earthQualityArray[ currentQualifiedEarthQualityIndex]
+								const side = Math.sqrt(sizeSquared)
+
+								var borderRunner = async (dispatch) => {
+									for (let i = 0; i < sizeSquared; i++) {
+										const column = ("00" +  Math.floor(i / side)).slice(-3)
+										const row = ("00" + i % side).slice(-3)
+										spriteSheetPromises[i] =
+											loadImage("https://rammb-slider.cira.colostate.edu/data/maps/"+currentSatellite+"/full_disk/borders/silver/"+year+month+day+hour+minute+second+"/0"+currentQualifiedEarthQualityIndex+"/"+column+"_"+row+".png")
+									}
+
+									var data = await Promise.all(spriteSheetPromises)
+									console.log(data)
+									if (currentSatellite != longitudeSatellitesMap.get(closestSatteliteDegrees) || sizeSquared != earthQualityArray[currentQualifiedEarthQualityIndex]) {
+										console.log("Cancelled")
+									} else bordersImgs = data
+								}
+								borderRunner()
+							})
+						}
+
+						if (showNightLight && nightLightImgs.length == 0) {
+							console.log("Fetching night lights")
+							const nightLightsTargetUrl = "https://rammb-slider.cira.colostate.edu/data/json/"+currentSatellite+"/full_disk/maps/city_lights/sodium/latest_times_all.json"
+							const nightLightUrl = targetUrl ? 'https://corsproxy.io/?' + encodeURIComponent(nightLightsTargetUrl + "?" + Date.now()) : nightLightsTargetUrl;
+							fetch(nightLightUrl)
+							.then(resp => resp.json())
+							.then(nightLightjson => {
+								const spriteSheetPromises = []
+
+								var nightLightTimestamp = ""+nightLightjson.timestamps_int[0]
+
+								const year = nightLightTimestamp.substring(0,4)
+								const month = ("0" + nightLightTimestamp.substring(4,6)).slice(-2)
+								const day = ("0" + nightLightTimestamp.substring(6,8)).slice(-2)
+								const hour = ("0" + nightLightTimestamp.substring(8,10)).slice(-2)
+								const minute = ("0" + nightLightTimestamp.substring(10,12)).slice(-2)
+								const second = ("0" + nightLightTimestamp.substring(12,14)).slice(-2)
+
+								const sizeSquared = earthQualityArray[currentQualifiedEarthQualityIndex]
+								const side = Math.sqrt(sizeSquared)
+
+								var nightRunner = async (dispatch) => {
+									for (let i = 0; i < sizeSquared; i++) {
+										const column = ("00" +  Math.floor(i / side)).slice(-3)
+										const row = ("00" + i % side).slice(-3)
+
+										spriteSheetPromises[i] =
+											loadImage("https://rammb-slider.cira.colostate.edu/data/maps/"+currentSatellite+"/full_disk/city_lights/sodium/"+year+month+day+hour+minute+second+"/0"+currentQualifiedEarthQualityIndex+"/"+column+"_"+row+".png")
+										
+									}
+
+									var data = await Promise.all(spriteSheetPromises)
+
+									if (currentSatellite != longitudeSatellitesMap.get(closestSatteliteDegrees) || sizeSquared != earthQualityArray[currentQualifiedEarthQualityIndex]) {
+										console.log("Cancelled")
+									} else nightLightImgs = data
+								}
+								nightRunner()
+							});
+						}
+
+						const earthView = currentEarthView
+						const earthFreq = earthFrequencyArray[currentEarthFrequencyIndex]
+						const sizeSquared = earthQualityArray[currentQualifiedEarthQualityIndex]
+
+						var earthRunner = async (dispatch) => {
+							for (let i = 0 ; i < /*(maxEarthState * 4 > timestamps.length ? */timestamps.length/* : maxEarthState * 4)*/; i += (4 / earthFreq)) {
+								const timestamp = ""+timestamps[i] // EX: 20240202124500 => 2024 02 02 15 45 00
+								
+								const year = timestamp.substring(0,4)
+								const month = ("0" + timestamp.substring(4,6)).slice(-2)
+								const day = ("0" + timestamp.substring(6,8)).slice(-2)
+								const hour = ("0" + timestamp.substring(8,10)).slice(-2)
+								const minute = ("0" + timestamp.substring(10,12)).slice(-2)
+								const second = ("0" + timestamp.substring(12,14)).slice(-2)
+
+								const imageDateTs = Date.parse(year+"/"+month+"/"+day+" "+hour+":"+minute+":"+second+".000UTC+00:00")
+								//console.log("Downloading " + new Date(imageDateTs))
+
+								if (earthMap.get(imageDateTs) != null) {
+									//continue
+									break
+								} 
+
+								const spriteSheetPromises = Array(sizeSquared)
+								const side = Math.sqrt(sizeSquared)
+
+								for (let j = 0; j < sizeSquared; j++) {
+									const column = ("00" +  Math.floor(j / side)).slice(-3)
+									const row = ("00" + j % side).slice(-3)
+									
+									spriteSheetPromises[j] =
+										loadImage("https://rammb-slider.cira.colostate.edu/data/imagery/"+year+"/"+month+"/"+day+"/"+currentSatellite+"---full_disk/"+currentEarthView+"/"+year+month+day+hour+minute+second+"/0"+currentQualifiedEarthQualityIndex+"/"+column+"_"+row+".png")
+									
+								}
+
+								const data = await Promise.all(spriteSheetPromises)
+								if (currentSatellite != longitudeSatellitesMap.get(closestSatteliteDegrees) || earthView != currentEarthView || earthFreq != earthFrequencyArray[currentEarthFrequencyIndex] || sizeSquared != earthQualityArray[currentQualifiedEarthQualityIndex]) {
+									console.log("Cancelled")
+
+									clearCache()
+									updateEarth()
+									break;
+								} else insertEarth(imageDateTs, data)
+							}
+						}
+						earthRunner()
+					})
+				
+					function updateWeatherInformation(weatherInfo) {
+						const sunriseTimestamp = Date.parse(currentDate+" "+weatherInfo.astronomy.astro.sunrise)
+						const sunsetTimestamp = Date.parse(currentDate+" "+weatherInfo.astronomy.astro.sunset)
+						const moonPhase = moonPhasesMap.get(weatherInfo.astronomy.astro.moon_phase)
+
+						document.getElementById("sunrise").textContent = timeFormat(new Date(sunriseTimestamp));
+						document.getElementById("sunset").textContent = timeFormat(new Date(sunsetTimestamp));
+						document.getElementById("moon_phase").textContent = moonPhase;
+					}
+			
+					if (!lastWeatherApiCallDate || new Date(lastWeatherApiCallDate).getDay() != lastUpdateEarthAttemptTime.getDay()) {
+						lastWeatherApiCallDate = lastUpdateEarthAttemptTime
+						console.log("Fetching Astronomy")
+						
+						fetch("https://api.weatherapi.com/v1/astronomy.json?key="+weatherApiKey+"&q="+geoInfo.location.lat+","+geoInfo.location.lon+"&dt="+currentDate)
+						.then((resp) => resp.json())
+						.then(weatherInfo => {
+							localStorage["currentWeatherInfo"] = JSON.stringify(weatherInfo)  
+							localStorage["lastWeatherApiCallDate"] = lastWeatherApiCallDate
+							updateWeatherInformation(weatherInfo)
+						})
+					} else if (localStorage["currentWeatherInfo"]) {
+						updateWeatherInformation(JSON.parse(localStorage["currentWeatherInfo"]))
+					}
+				}
+
+				/*navigator.geolocation.getCurrentPosition((position) => {
+					currentGeoInfo = {
+						location: {
+							lon: position.coords.longitude,
+							lat: position.coords.latitude
+						}
+					}
+					refreshEarthForGeo(currentGeoInfo)
+				}, (error) => {
+					const timezoneOffset = (new Date().getTimezoneOffset() / 60) / 12
+					const utcZeroDate = Date.parse(currentDate +" 12:00:00.000UTC+00:00")
+					currentGeoInfo = {
+						location: {
+							lon: timezoneOffset * 180,
+							lat: 0.0
+						}
+					}
+					refreshEarthForGeo(currentGeoInfo)
+				});*/
+				
+				fetch("https://api.iplocation.net/?cmd=get-ip")
+				.then((resp) => resp.json())
+				.then(ipInfo => {
+					if (currentIp == ipInfo.ip && currentGeoInfo) {
+						refreshEarthForGeo(currentGeoInfo)
+					} else {
+						console.log("No IP or IP change, fetching Localization")
+						fetch("https://api.weatherapi.com/v1/astronomy.json?key="+weatherApiKey+"&q=" + ipInfo.ip)
+						.then((resp) => resp.json())
+						.then(geoInfo => {
+							currentIp = ipInfo.ip
+							currentGeoInfo = geoInfo
+							localStorage["currentIp"] = JSON.stringify(currentIp)  
+							localStorage["currentGeoInfo"] = JSON.stringify(currentGeoInfo) 
+
+							refreshEarthForGeo(currentGeoInfo)
+						})		
+					}
+					
+				})
+            }
+
+			
+
+        	function digitFormat(number) {
+        		return (number >= 10 ? '' : '0') + number;
+        	}
+
+    		function timeFormat(time) {
+    			return digitFormat(time.getHours()) + ":" + digitFormat(time.getMinutes()) + ":" + digitFormat(time.getSeconds())
+    		}
+
+            function tick() {
+				requestAnimationFrame((t) => tick(t))
+
+				//Canvas
+				var context = canvas.getContext('2d');
+				context.imageSmoothingEnabled = true
+				context.clearRect(0, 0, canvas.width, canvas.height);
+			
+				var timeStamp = Date.now();
+            	document.getElementById("time").textContent = timeFormat(new Date(timeStamp));
+
+				if (lastUpdateEarthAttemptTime == null || timeStamp - lastUpdateEarthAttemptTime.valueOf() > timeToRefreshEarths) {
+					updateEarth()
+				}
+
+				if (earthMap.size > 0) {
+					const dateList = Array.from(earthMap.keys())
+					const imageList = Array.from(earthMap.values())
+
+					if (earthMap.size > 1 && alphaBetweenEarthsStarted == null) {
+						alphaBetweenEarthsStarted = timeStamp
+					}
+										
+					const processAudio = (listenToAudio && isPlayingAudio)
+
+					const total = dateList.length - 1
+					const edgeDatesDelta = dateList[0] - dateList[total]
+					const totalRange = Math.min(1, (dateList[0] - dateList[total]) / dayTS)
+					var alpha = processAudio || globalAlpha != null ? globalAlpha : (totalRange > 0 ? Math.min(1.0, (timeStamp - alphaBetweenEarthsStarted) / (timeBetweenEarths * totalRange)) : 0);
+					//console.log("Alpha Main : "+alpha)
+					if (!imageBlendDirectionBackward && globalAlpha == null) alpha = 1.0 - alpha
+
+					const targetTimestamp = dateList[0] - (edgeDatesDelta * alpha)
+
+					var leftImageTimestamp = null
+					for (let i = 0; i < dateList.length; i++) {
+						let curr = dateList[i]
+						if (targetTimestamp <= curr) {
+							leftImageTimestamp = curr
+						} else break
+					}
+
+					var rightImageTimestamp = null
+					for (let i = dateList.length - 1; i >= 0; i--) {
+						let curr = dateList[i]
+						if (targetTimestamp >= curr) {
+							rightImageTimestamp = curr
+						} else break
+					}
+
+                    //console.log("Alpha : " + alpha + " Target : "+new Date(targetTimestamp)+" Left : " + new Date(leftImageTimestamp) + " Right : " + new Date(rightImageTimestamp))
+
+					var individualAlpha = (leftImageTimestamp - targetTimestamp) / (leftImageTimestamp - rightImageTimestamp)
+
+					var leftImageArray = earthMap.get(leftImageTimestamp)
+
+					canvas.width = leftImageArray.width
+					canvas.height = leftImageArray.height
+
+					// Clip canvas
+					/*context.beginPath();
+					context.ellipse(canvas.width * 0.5, canvas.height * 0.4982, canvas.width * 0.485, canvas.height * 0.4878, Math.PI / 4, 0, 2 * Math.PI);//48.54% 48.78% at 50.0% 49.82%
+					context.clip();*/
+
+					//Earth Blends
+					context.filter = "contrast(1.00) saturate(1.0) brightness(1.00)"// + (processAudio ? " hue-rotate("+globalAlpha * Math.PI * 2+"rad)" : "")
+					context.globalAlpha = (1.0 - individualAlpha) * (debugStarmap ? 0.5 : 1.0)
+					context.drawImage(leftImageArray, 0, 0);
+
+					if (individualAlpha > 0) {
+						var rightImageArray = earthMap.get(rightImageTimestamp)
+
+						context.globalAlpha = (individualAlpha) * (debugStarmap ? 0.5 : 1.0)
+						context.globalCompositeOperation = "lighter"
+						context.drawImage(rightImageArray, 0, 0);
+					}
+
+					var earthTimezoneAdjustment = (dayTS * Number(closestSatteliteDegrees) / 360)
+					var earthTimestamp = targetTimestamp + earthTimezoneAdjustment
+					var earthDate = new Date(earthTimestamp)
+					const currentEarthShortDate = earthDate.getFullYear()+"-"+(earthDate.getMonth()+1)+"-"+ earthDate.getDate()
+
+					//Alpha Layers
+					const qualityModifier = !useProxy && (closestSatteliteDegrees == 0.0 || closestSatteliteDegrees == 45.5) ? 1 : 0
+					const currentQualifiedEarthQualityIndex = Math.min(earthQualityArray.length - 1, currentEarthQualityIndex + qualityModifier) 
+
+					const sizeSquared = earthQualityArray[currentQualifiedEarthQualityIndex]
+					const side = Math.sqrt(sizeSquared)
+
+					//Night Alpha
+					var peakOfNightTimestamp = Date.parse(currentEarthShortDate + " 00:00") + dayTS// + (dayTS * -Number(closestSatteliteDegrees) / 360)
+					var lastPeakOfNightTimestamp = peakOfNightTimestamp - dayTS
+					var nightAlpha = null
+
+					if (peakOfNightTimestamp - earthTimestamp < earthTimestamp - lastPeakOfNightTimestamp) {
+						nightAlpha = 1 - ((peakOfNightTimestamp - earthTimestamp) / (dayTS / 2))
+					} else {
+						nightAlpha = 1 - ((earthTimestamp - lastPeakOfNightTimestamp) / (dayTS / 2))
+					}
+
+					nightAlpha = Math.max(0.0, Math.min(1.0, nightAlpha))
+
+					if (currentEarthView == "natural_color") {
+						//Night Lights
+						if (nightLightImgs.length > 0 && (processAudio || showNightLight)) {
+							context.globalAlpha = 1 * (debugStarmap ? 0.5 : 1.0)
+							context.globalCompositeOperation = "lighten"// lighten
+							context.filter = "contrast("+(1.4 * (1 / earthColorFilterContrast))+") brightness("+ (0.11 + (1 - Math.sin(Math.pow(1 - nightAlpha, 1.2) * Math.PI/2)))+") saturate("+(1.4 * 1 / earthColorFilterContrast)+")"// + (processAudio ? " hue-rotate("+globalAlpha * Math.PI * 8+"rad)" : "") //(0.2 + ((1.8 - 0.2) * Math.min(1.0, Math.pow(nightAlpha, 1.8))))
+
+							const ratio =  canvas.width / (nightLightImgs[0].width * side) 
+
+							for (let i = 0; i < sizeSquared; i++) {
+								const column = Math.floor(i / side)
+								const row = i % side
+
+								context.drawImage(nightLightImgs[i].image, nightLightImgs[0].image.width * row * ratio, nightLightImgs[0].image.height * column * ratio, nightLightImgs[0].image.width * ratio, nightLightImgs[0].image.height * ratio);
+							}
+						}
+					}
+
+					//Borders
+					if (showBorders && bordersImgs.length > 0) {
+						context.globalAlpha = 1 * (debugStarmap ? 0.5 : 1.0)
+						context.globalCompositeOperation = "source-atop"
+						context.filter = ""
+
+						const ratio =  canvas.width / (bordersImgs[0].width * side) 
+
+						for (let i = 0; i < sizeSquared; i++) {
+							const column = Math.floor(i / side)
+							const row = i % side
+
+							context.drawImage(bordersImgs[i].image, bordersImgs[0].image.width * row * ratio, bordersImgs[0].image.height * column * ratio, bordersImgs[0].image.width * ratio, bordersImgs[0].image.height * ratio);
+						}
+					}
+
+					if (!earthSpriteMaterial || earthColorFilterOverride) {
+						if (currentEarthView == "natural_color") {
+							earthSpriteMaterial = new THREE.ShaderMaterial({
+								defines: {
+									ENABLED: earthColorFilterDisable ? 0 : 1,
+								},
+								uniforms: {
+									tex: {
+										value: earthSpriteTexture
+									},
+									lut: {
+										value: clutTexture
+									},
+									lutWidth: {
+										value: clutTexture.image.width
+									},
+									brightness: { value: earthColorFilterDisable ? 0 : earthColorFilterBrightness },
+									exposure: { value: earthColorFilterDisable ? 0 : earthColorFilterExposure },
+									contrast: { value: earthColorFilterDisable ? 1 : earthColorFilterContrast },
+									saturation: { value: earthColorFilterDisable ? 0 : earthColorFilterSaturation },
+									hueShift: { value: earthColorFilterDisable ? 0 : earthColorFilterHueShift}
+								},
+								vertexShader: document.getElementById( 'vertexShader' ).textContent,
+								fragmentShader: document.getElementById( 'lutFragmentShader' ).textContent
+							});
+						} else {
+							earthSpriteMaterial = new THREE.ShaderMaterial({
+								uniforms: {
+									tex: { value : earthSpriteTexture},
+									brightness: { value: 0 },
+									exposure: { value: 0.0 },
+									contrast: { value: earthColorFilterContrast },
+									saturation: { value: 0 }
+								},
+								vertexShader: document.getElementById('vertexShader').textContent,
+								fragmentShader: document.getElementById('colorCorrectionFragmentShader').textContent,
+							});
+						}
+
+						earthSprite.material = earthSpriteMaterial
+
+						console.log("Should work")
+					}
+					
+					var vernalEquinox = Date.getSeasons()[1]
+					var nextVernalEquinox = null
+					
+					if (vernalEquinox.getTime() > earthTimestamp) {
+						nextVernalEquinox = vernalEquinox
+						vernalEquinox = Date.getSeasons(earthDate.getFullYear() - 1)[1].getTime()
+					} else {
+						nextVernalEquinox = Date.getSeasons(earthDate.getFullYear() + 1)[1].getTime()
+					}
+
+					//console.log(JSON.stringify(new Date(vernalEquinox)) + " - " + JSON.stringify(new Date(nextVernalEquinox)))
+
+					var currentDateZero = Date.parse(currentEarthShortDate+" 00:00:00.000UTC+00:00")
+					var yearRotation = ((earthTimestamp - vernalEquinox) / (nextVernalEquinox - vernalEquinox)) * Math.PI * 2
+					var dayRotation = ((earthTimestamp - currentDateZero) / dayTS) * Math.PI * 2
+					
+					//console.log("Starmap Rotation : " + yearRotation + " + " + dayRotation)
+
+					//Starmap rotation
+					var dateInterval = dateList[dateList.length - 1] - dateList[0]
+
+					var rotationFactor = yearRotation + dayRotation - (Number(closestSatteliteDegrees) * (Math.PI/180));
+					//rotationFactor += 180.0 - closestSatteliteDegrees
+					const distance = (earthSpriteMinDistance) / (Math.tan(camera.fov / 2.0 * Math.PI / 180.0) * 2.0)
+
+					//earthSprite.position.set(0, -1 ,0)
+					earthSprite.lookAt(Math.cos(-rotationFactor), 0, Math.sin(-rotationFactor))
+					camera.position.set(Math.cos(-rotationFactor) * distance, earthSpriteOffset, Math.sin(-rotationFactor) * distance);
+					camera.lookAt(Math.cos(-rotationFactor), earthSpriteOffset, Math.sin(-rotationFactor));
+					if (rotateEarthTilt) {
+						var summerSolstice = Date.getSeasons()[2]
+
+						console.log(new Date(summerSolstice))
+						var nextSummerSolstice = null
+						
+						if (summerSolstice.getTime() > earthTimestamp) {
+							nextSummerSolstice = summerSolstice
+							summerSolstice = Date.getSeasons(earthDate.getFullYear() - 1)[2].getTime()
+						} else {
+							nextSummerSolstice = Date.getSeasons(earthDate.getFullYear() + 1)[2].getTime()
+						}
+
+						//console.log(JSON.stringify(new Date(vernalEquinox)) + " - " + JSON.stringify(new Date(nextVernalEquinox)))
+
+						var tiltFactor = (earthTimestamp - summerSolstice) / (nextSummerSolstice - summerSolstice)
+						camera.rotation.z += ((tiltFactor * 2) - 1) * 0.409092627749
+					}
+					//*/camera.position.set(0, earthSpriteOffset, distance) 
+
+					if (starsDuringDay || debugStarmap) {
+						sphere.material = new THREE.ShaderMaterial({
+							uniforms: {
+								tex: { value : texture},
+								brightness: { value: 0 },
+								exposure: { value: 0.0 },
+								contrast: { value: 1 },
+								saturation: { value: 0 }
+							},
+							vertexShader: document.getElementById('vertexShader').textContent,
+							fragmentShader: document.getElementById('colorCorrectionFragmentShader').textContent,
+							side: THREE.BackSide,
+						});
+					} else {
+						const brightness = 1 - Math.sin(Math.pow(1 - nightAlpha, 2.5) * Math.PI/2)
+						
+						sphere.material = new THREE.ShaderMaterial({
+							uniforms: {
+								tex: { value : texture},
+								brightness: { value: brightness - 1 },
+								exposure: { value: 0 },
+								contrast: { value: 1 + (1 - brightness) },
+								saturation: { value: ((1 - Math.pow(nightAlpha, 1.4)) * -0.9) }
+							},
+							vertexShader: document.getElementById('vertexShader').textContent,
+							fragmentShader: document.getElementById('colorCorrectionFragmentShader').textContent,
+							side: THREE.BackSide,
+						});
+					}
+					const tzAdjustedEarthTimestamp = earthTimestamp - earthTimezoneAdjustment //+ (new Date().getTimezoneOffset() * 60 * 1000) 
+
+					if (currentTimeStampContext == 0) {
+						const getTimeBetweenDates = (startDate, endDate) => {
+							const delta = (endDate - startDate)
+							const hours = Math.floor(delta / (60 * 60 * 1000));
+							const minutes = Math.floor((delta - (hours * 60 * 60 * 1000)) / (60 * 1000));
+							const seconds = Math.floor((delta - ((hours * 60 * 60 * 1000) + (minutes * 60 * 1000))) / 1000);
+
+							return { seconds, minutes, hours };
+						};
+						const {seconds, minutes, hours} = getTimeBetweenDates(tzAdjustedEarthTimestamp, timeStamp)
+
+						document.getElementById("time_stamp").textContent =  digitFormat(hours) + ":" + digitFormat(minutes) + ":" + digitFormat(seconds)
+					} else {
+						document.getElementById("time_stamp").textContent =  timeFormat(new Date(tzAdjustedEarthTimestamp))
+					}
+
+					document.getElementById("motion_mode").textContent = processAudio ? "∿" : (earthMap.size == maxEarthState * earthFrequencyArray[currentEarthFrequencyIndex] ? (imageBlendDirectionBackward ? "↓" : "↑") : "⟳")
+						
+					if (alpha >= 1.0 || (alpha == 0.0 && !imageBlendDirectionBackward)) {
+						alphaBetweenEarthsStarted = timeStamp
+
+						if (bounceEarths) imageBlendDirectionBackward = !imageBlendDirectionBackward
+					}
+				}
+
+				earthSpriteTexture.needsUpdate = true
+
+				backgroundComposer.render()		
+				finalComposer.render()
+
+				//renderer.render(fullScene, camera);
+            }
+
+            starmap.addEventListener('onmouseleave', onDocumentMouseLeave, false);
+			starmap.addEventListener('mousemove', onDocumentMouseMove, false);
+			//starmap.addEventListener("wheel", onDocumentWheel, true);
+			//starmap.addEventListener("dblclick", onDocumentDoubleClick, true);
+			starmap.addEventListener('click', onDocumentClick, false);
+			starmap.addEventListener('click', onDocumentMouseDown, false);
+			starmap.addEventListener('click', onDocumentMouseUp, false);
+			starmap.addEventListener("lostpointercapture", (event) => {
+				earthManualModeOrigin = null;
+				resetGlobalAlpha();
+			});
+
+
+			function onDocumentMouseLeave() { 
+				if ((!listenToAudio || !isPlayingAudio) && earthMap.size > 1) {
+					resetGlobalAlpha()
+				}
+			}
+
+			/*function onDocumentWheel(event) {
+				console.log("Wheel")
+				//event.preventDefault();
+				earthSpriteDistance = earthSpriteDistance == 4.7 ? 2.2 : 4.7
+				earthSpriteOffset = earthSpriteOffset == 1.99 ? 0 : 1.99
+			}
+
+			function onDocumentDoubleClick(event) {
+				console.log("Double click")
+				earthSpriteDistance = earthSpriteDistance == 4.7 ? 2.2 : 4.7
+				earthSpriteOffset = earthSpriteOffset == 1.99 ? 0 : 1.9
+			}*/
+
+			function onDocumentClick(event) {
+				console.log("Click")
+				/*earthSpriteDistance = earthSpriteDistance == 4.7 ? 2.2 : 4.7
+				earthSpriteOffset = earthSpriteOffset == 1.99 ? 0 : 1.99*/
+
+
+			}
+
+			function onDocumentMouseUp(event) {
+				console.log("Mouse Up")
+			}
+
+			function onDocumentMouseDown(event) {
+				console.log("Mouse Down")
+
+				if (earthMap.size > 1) {
+					if (earthManualModeOrigin != null) {
+						console.log("Reset click !")
+
+						earthManualModeOrigin = null
+						resetGlobalAlpha()
+					} else {
+						var leftX = (window.innerWidth * 0.5) - (canvas.width * 0.7)
+						var rightX = (window.innerWidth *0.5) + (canvas.width * 0.7)
+
+						var topY = (window.innerHeight * 0.5) - (canvas.height * 0.7)
+						var bottomY = (window.innerHeight * 0.5) + (canvas.height * 0.7)
+
+						//console.log("CanvasW "+(canvas.width / 2)+"|  Width "+window.innerWidth+"|  Left X " + leftX + " | Right X " + rightX + " | Height " + (window.innerHeight / 2) +  " | Top Y "+topY+" | Bottom Y" + bottomY)
+
+						if (event.clientX > leftX && event.clientX < rightX && event.clientY > topY && event.clientY < bottomY) {
+							var currentDate = null
+							var dateList = Array.from(earthMap.keys())
+							const total = dateList.length - 1
+							
+							const edgeDatesDelta = dateList[0] - dateList[total]
+							const totalRange = Math.min(1, edgeDatesDelta / dayTS)
+							var alpha = globalAlpha != null ? globalAlpha : Math.min(1.0, ((Date.now() - alphaBetweenEarthsStarted) / (timeBetweenEarths * totalRange)));
+							if (globalAlpha == null && !imageBlendDirectionBackward) alpha = 1.0 - alpha
+							//console.log("Old Alpha : " + oldAlpha)
+
+							earthManualModeOrigin = Math.floor(event.clientX - (canvas.width * alpha))
+							globalAlpha = alpha
+							console.log("Accepted click : " + event.clientX + " With alpha adjusted : " + earthManualModeOrigin)
+						}
+					}
+				}
+			}
+
+			function onDocumentMouseMove(event) {
+				if ( earthManualModeOrigin != null) {
+					var newGlobalAlpha = (event.clientX - earthManualModeOrigin) / canvas.width
+					document.getElementById("debug").textContent = newGlobalAlpha
+					if (newGlobalAlpha < 0) {
+						earthManualModeOrigin = event.clientX
+						newGlobalAlpha = 0
+					} else if (newGlobalAlpha > 1) {
+						earthManualModeOrigin = event.clientX - canvas.width
+						newGlobalAlpha = 1
+					}
+					
+					//newGlobalAlpha = newGlobalAlpha && newGlobalAlpha >= 0 ? newGlobalAlpha : 0
+					console.log("Event X : " + event.clientX + " versus : " + earthManualModeOrigin + " delta : " + ((event.clientX - earthManualModeOrigin) / canvas.width))
+					imageBlendDirectionBackward = newGlobalAlpha > globalAlpha
+					globalAlpha = newGlobalAlpha
+					console.log("Fired : " + newGlobalAlpha)
+				}
+				//console.log("Fired : " + globalAlpha)
+			}
+
+			var observer = new MutationObserver(function(mutations) {
+				mutations.forEach(function(mutationRecord) {
+					if (mutationRecord.type === "attributes") {
+						if (starmap.style.animationPlayState === "paused") {
+							console.log("Starmap paused")
+							starmapPausedDeltaTs = Date.now() - alphaBetweenEarthsStarted
+						} else {
+							alphaBetweenEarthsStarted = Date.now() - starmapPausedDeltaTs
+							starmapPausedDeltaTs = 0
+							console.log("Starmap resumed")
+						}
+					}
+				});    
+			});
+
+			observer.observe(starmap, { attributes : true, attributeFilter : ['style'] });
+
+			//localStorage.clear()
+
+			if (localStorage["currentIp"] && localStorage["currentGeoInfo"]) {
+				currentIp = localStorage["currentIp"] ? JSON.parse(localStorage["currentIp"]) : null 
+				currentGeoInfo = localStorage["currentGeoInfo"] ? JSON.parse(localStorage["currentGeoInfo"]) : null 
+				currentWeatherInfo = localStorage["currentWeatherInfo"] ? JSON.parse(localStorage["currentWeatherInfo"]) : null 
+				lastWeatherApiCallDate = localStorage["lastWeatherApiCallDate"]	
+
+				console.log("From local storage")
+			} else localStorage.clear()
+
+			
+
+			if (!isWallpaperEngine) tick()
+
+			/*document.addEventListener("visibilitychange", () => { DOESN'T TRIGGER ANYTHING ?!
+				if (document.hidden) {
+					console.log("Clock paused")
+				} else {
+					console.log("Clock resumed")
+				}
+			});*/
+        </script>
+    </body>
+</html>

@@ -1,0 +1,378 @@
+{
+	"contentrating" : "Everyone",
+	"description" : "Live footage from EUMETSAT geostationary satellite at 0º.\nImages are refreshed every hour, as per EUMETSAT availability.",
+	"file" : "index.html",
+	"general" : 
+	{
+		"properties" : 
+		{
+			"bounceearth" : 
+			{
+				"index" : 1,
+				"order" : 101,
+				"text" : "Bounce Earth",
+				"type" : "bool",
+				"value" : true
+			},
+			"daystar" : 
+			{
+				"index" : 1,
+				"order" : 101,
+				"text" : "Show stars during day",
+				"type" : "bool",
+				"value" : false
+			},
+			"showinfo" : 
+			{
+				"index" : 1,
+				"order" : 101,
+				"text" : "Show Time and Astrological Information",
+				"type" : "bool",
+				"value" : true
+			},
+			"shownightlight" : 
+			{
+				"condition": "earthview.value == \"natural_color\"",
+				"index" : 1,
+				"order" : 102,
+				"text" : "Show Night Life",
+				"type" : "bool",
+				"value" : true
+			},
+			"showborders" : 
+			{
+				"index" : 1,
+				"order" : 102,
+				"text" : "Show Territorial Borders",
+				"type" : "bool",
+				"value" : false
+			},
+			"realistictilt" : 
+			{
+				"index" : 1,
+				"order" : 102,
+				"text" : "Show Earth Tilt",
+				"type" : "bool",
+				"value" : false
+			},
+			"timestampcontext" : 
+			{
+				"index" : 1,
+				"options" : 
+				[
+					{
+						"label" : "Delta",
+						"value" : 0
+					},
+					{
+						"label" : "Earth Timestamp",
+						"value" : 1
+					}
+				],
+				"order" : 100,
+				"text" : "Earth View",
+				"type" : "combo",
+				"value" : 0
+			},
+			"earthview" : 
+			{
+				"index" : 1,
+				"options" : 
+				[
+					{
+						"label" : "Naked Eye",
+						"value" : "natural_color"
+					},
+					{
+						"label" : "Enhanced",
+						"value" : "geocolor"
+					}
+				],
+				"order" : 100,
+				"text" : "Earth View",
+				"type" : "combo",
+				"value" : "natural_color"
+			},
+			"earthquality" : 
+			{
+				"index" : 4,
+				"options" : 
+				[
+					{
+						"label" : "Low",
+						"value" : 0
+					},
+					{
+						"label" : "Medium",
+						"value" : 1
+					},
+					{
+						"label" : "High",
+						"value" : 2
+					},
+					{
+						"label" : "Extreme",
+						"value" : 3
+					}
+				],
+				"order" : 100,
+				"text" : "Earth Quality",
+				"type" : "combo",
+				"value" : 1
+			},
+			"satellite" : 
+			{
+				"index" : 0,
+				"options" : 
+				[
+					{
+						"label" : "Closest",
+						"value" : "auto"
+					},
+					{
+						"label" : "Follow Sun",
+						"value" : "follow-sun"
+					},
+					{
+						"label" : "LAT -137",
+						"value" : "-137"
+					},
+					{
+						"label" : "LAT -75.2",
+						"value" : "-75.2"
+					},
+					{
+						"label" : "LAT 0.0",
+						"value" : "0.0"
+					},
+					{
+						"label" : "LAT 45.5",
+						"value" : "45.5"
+					},
+					{
+						"label" : "LAT 128.0",
+						"value" : "128.0"
+					},
+					{
+						"label" : "LAT 140.7",
+						"value" : "140.7"
+					}
+				],
+				"order" : 100,
+				"text" : "Satellite",
+				"type" : "combo",
+				"value" : "auto"
+			},
+			"earthfrequency" : 
+			{
+				"index" : 5,
+				"options" : 
+				[
+					{
+						"label" : "Low",
+						"value" : 0
+					},
+					{
+						"label" : "Medium",
+						"value" : 1
+					},
+					{
+						"label" : "High",
+						"value" : 2
+					}
+				],
+				"order" : 100,
+				"text" : "Earth Frequency",
+				"type" : "combo",
+				"value" : 1
+			},
+			"timewindow" : 
+			{
+				"index" : 6,
+				"options" : 
+				[
+					{
+						"label" : "6 Hours",
+						"value" : 6
+					},
+					{
+						"label" : "12 Hours",
+						"value" : 12
+					},
+					{
+						"label" : "24 Hours",
+						"value" : 24
+					}
+				],
+				"order" : 100,
+				"text" : "Time Window",
+				"type" : "combo",
+				"value" : 12
+			},
+			"starmapfov" : {
+				"index" : 3,
+				"options" : 
+				[
+					{
+						"label" : "45",
+						"value" : 45
+					},
+					{
+						"label" : "60",
+						"value" : 60
+					},
+					{
+						"label" : "90",
+						"value" : 90
+					},
+					{
+						"label" : "120",
+						"value" : 120
+					}
+				],
+				"order" : 100,
+				"text" : "Starmap FOV",
+				"type" : "combo",
+				"value" : 60
+			},
+			"starmapoverlay" : {
+				"index" : 2,
+				"options" : 
+				[
+					{
+						"label" : "None",
+						"value" : "naked"
+					},
+					{
+						"label" : "Constellations",
+						"value" : "constellations"
+					},
+					{
+						"label" : "Constellation Boundaries",
+						"value" : "boundaries"
+					},
+					{
+						"label" : "Constellations and Constellation Boundaries",
+						"value" : "boundariesplusconstellations"
+					}
+				],
+				"order" : 100,
+				"text" : "Starmap Overlay",
+				"type" : "combo",
+				"value" : 1
+			},
+			"earthspeed" : {
+				"index" : 2,
+				"options" : 
+				[
+					{
+						"label" : "Slowest",
+						"value" : 1440000
+					},
+					{
+						"label" : "Slow",
+						"value" : 360000
+					},
+					{
+						"label" : "Average",
+						"value" : 90000
+					},
+					{
+						"label" : "Fast",
+						"value" : 22500
+					},
+					{
+						"label" : "Fastest",
+						"value" : 5625
+					}
+				],
+				"order" : 100,
+				"text" : "Earth Rotation Speed",
+				"type" : "combo",
+				"value" : 360000
+			},
+			"filteroverride" : 
+			{
+				"index" : 1,
+				"order" : -50,
+				"text" : "Override Filter",
+				"type" : "bool",
+				"value" : false
+			},
+			"filterdisable" : 
+			{
+				"index" : 1,
+				"order" : -50,
+				"text" : "Disable Filter",
+				"type" : "bool",
+				"value" : false
+			},
+			"filterbrightness": {
+				"max": 1.0,
+				"min": -1.0,
+				"fraction" : true,
+				"precision" : 5,
+				"step" : 0.00001,
+				"order": -9,
+				"text": "Filter Brightness",
+				"type": "slider",
+				"value": 1.00
+			},
+			"filtercontrast": {
+				"max": 2.0,
+				"min": 1.0,
+				"fraction" : true,
+				"precision" : 5,
+				"step" : 0.00001,
+				"order": -9,
+				"text": "Filter Contrast",
+				"type": "slider",
+				"value": 1.10
+			},
+			"filterexposure": {
+				"max": 1.0,
+				"min": -1.0,
+				"fraction" : true,
+				"precision" : 5,
+				"step" : 0.00001,
+				"order": -9,
+				"text": "Filter Exposure",
+				"type": "slider",
+				"value": 1.00
+			},
+			"filtersaturation": {
+				"max": 2.0,
+				"min": -1.0,
+				"fraction" : true,
+				"precision" : 5,
+				"step" : 0.00001,
+				"order": -9,
+				"text": "Filter Saturation",
+				"type": "slider",
+				"value": 0.3
+			},
+			"filterhueshift": {
+				"max": 6.283185307179586476925286766559,
+				"min": 0,
+				"fraction" : true,
+				"precision" : 5,
+				"step" : 0.00001,
+				"order": -9,
+				"text": "Filter Hue Shift",
+				"type": "slider",
+				"value": 0
+			}
+		},
+		"supportsaudioprocessing" : true
+	},
+	"preview" : "preview.jpg",
+	"ratingsex" : "none",
+	"ratingviolence" : "none",
+	"tags" : [ "Nature" ],
+	"title" : "Live Earth 0º",
+	"type" : "web",
+	"version" : 0,
+	"visibility" : "public",
+	"workshopid" : "2012496367",
+	"workshopurl" : "steam://url/CommunityFilePage/2012496367"
+}
