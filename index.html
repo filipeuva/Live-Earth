@@ -391,20 +391,20 @@
 			var nightLightImgs = []
 
 			const moonPhasesMap = new Map(Object.entries({
-				"New Moon": "🌑︎",
-				"Waxing Crescent": "🌘︎",
-				"First Quarter": "🌓︎",
-				"Waxing Gibbous": "🌖︎",
-				"Full Moon": "🌕︎",
-				"Waning Gibbous": "🌔︎",
-				"Last Quarter": "🌗︎",
-				"Waning Crescent": "🌒︎"
+				"New Moon": "🌑",
+				"Waxing Crescent": "🌒",
+				"First Quarter": "🌓",
+				"Waxing Gibbous": "🌔",
+				"Full Moon": "🌕",
+				"Waning Gibbous": "🌖",
+				"Last Quarter": "🌗",
+				"Waning Crescent": "🌘"
 			}));
 
 			const longitudeSatellitesMap = new Map(Object.entries({
 				"-137": "goes-18",
 				"-75.2": "goes-16",
-				"0.0": "meteosat-0deg",
+				"0.0": "meteosat-12",
 				"45.5": "meteosat-9",
 				"128.0": "gk2a",
 				"140.7": "himawari"
@@ -846,7 +846,8 @@
 				camera.updateProjectionMatrix();
 
 				renderer.setSize( window.innerWidth, window.innerHeight );
-				composer.setSize( window.innerWidth, window.innerHeight );
+				//backgroundComposer.setSize( window.innerWidth, window.innerHeight );
+				finalComposer.setSize( window.innerWidth, window.innerHeight );
 				console.log("Resized")
 			 });
 
@@ -1082,7 +1083,7 @@
 						const sizeSquared = earthQualityArray[currentQualifiedEarthQualityIndex]
 
 						var earthRunner = async (dispatch) => {
-							for (let i = 0 ; i < /*(maxEarthState * 4 > timestamps.length ? */timestamps.length/* : maxEarthState * 4)*/; i += (4 / earthFreq)) {
+							for (let i = 0 ; i < /*(maxEarthState * 4 > timestamps.length ? */timestamps.length/* : maxEarthState * 4)*/; i += (5 / earthFreq)) {
 								const timestamp = ""+timestamps[i] // EX: 20240202124500 => 2024 02 02 15 45 00
 								
 								const year = timestamp.substring(0,4)
@@ -1204,7 +1205,7 @@
     		}
 
             function tick() {
-				requestAnimationFrame((t) => tick(t))
+				
 
 				//Canvas
 				var context = canvas.getContext('2d');
@@ -1494,6 +1495,7 @@
 				finalComposer.render()
 
 				//renderer.render(fullScene, camera);
+				requestAnimationFrame((t) => tick(t))
             }
 
             starmap.addEventListener('onmouseleave', onDocumentMouseLeave, false);
